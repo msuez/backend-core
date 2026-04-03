@@ -21,6 +21,14 @@ describe('S3StorageService', () => {
     expect(service).toBeDefined();
   });
 
+  it('throws if bucket is empty string', () => {
+    expect(() => new S3StorageService({ ...config, bucket: '' })).toThrow('S3 bucket name is required');
+  });
+
+  it('throws if bucket is missing (undefined cast)', () => {
+    expect(() => new S3StorageService({ ...config, bucket: undefined as unknown as string })).toThrow('S3 bucket name is required');
+  });
+
   it('implements IStorageService interface', () => {
     const service = new S3StorageService(config);
     expect(typeof service.upload).toBe('function');

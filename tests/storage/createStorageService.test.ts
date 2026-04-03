@@ -50,4 +50,16 @@ describe('createStorageService', () => {
     });
     expect(service).toBeInstanceOf(S3StorageService);
   });
+
+  it('throws when STORAGE_DRIVER=s3 and S3_BUCKET is not set', () => {
+    process.env['STORAGE_DRIVER'] = 's3';
+    delete process.env['S3_BUCKET'];
+    expect(() => createStorageService()).toThrow('S3 bucket name is required');
+  });
+
+  it('throws when driver=s3 is passed explicitly without a bucket', () => {
+    expect(() =>
+      createStorageService({ driver: 's3', bucket: '', region: 'us-east-1' }),
+    ).toThrow('S3 bucket name is required');
+  });
 });

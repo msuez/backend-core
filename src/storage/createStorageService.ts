@@ -15,8 +15,10 @@ export function createStorageService(config?: StorageServiceConfig): IStorageSer
 
   if (driver === 's3') {
     const s3 = config as ({ driver: 's3' } & IS3StorageConfig) | undefined;
+    const bucket = s3?.bucket ?? process.env['S3_BUCKET'];
+    if (!bucket) throw new Error('S3 bucket name is required. Set S3_BUCKET env var or pass bucket in config.');
     return new S3StorageService({
-      bucket: s3?.bucket ?? process.env['S3_BUCKET'] ?? '',
+      bucket,
       region: s3?.region ?? process.env['S3_REGION'] ?? 'us-east-1',
       accessKeyId: s3?.accessKeyId ?? process.env['S3_ACCESS_KEY_ID'],
       secretAccessKey: s3?.secretAccessKey ?? process.env['S3_SECRET_ACCESS_KEY'],

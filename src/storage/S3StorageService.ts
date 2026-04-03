@@ -19,6 +19,7 @@ export class S3StorageService implements IStorageService {
     private readonly config: IS3StorageConfig,
     client?: S3Client,
   ) {
+    if (!config.bucket) throw new Error('S3 bucket name is required');
     this.bucket = config.bucket;
     this.client =
       client ??
