@@ -4,11 +4,10 @@ import type { ICacheClient } from '../cache';
 import type { IRateLimiterConfig } from './IRateLimiterConfig';
 import { Logger } from '../logger';
 
-const logger = new Logger('RateLimiter');
-
 export class RateLimiter {
   private readonly limiter: RateLimiterRedis;
   private readonly keyExtractor: (req: Request) => string | null;
+  private readonly logger = new Logger('RateLimiter');
 
   constructor(redis: ICacheClient, config: IRateLimiterConfig) {
     this.limiter = new RateLimiterRedis({
@@ -32,7 +31,7 @@ export class RateLimiter {
       res.set('X-RateLimit-Remaining', String(result.remainingPoints));
       next();
     } catch (err) {
-      logger.warn(`Rate limit exceeded for ${key}`);
+      this.logger.warn(`Rate limit exceeded for ${key}`);
       const retryAfter = Math.ceil((err as { msBeforeNext: number }).msBeforeNext / 1000);
       res.set('Retry-After', String(retryAfter));
       res.status(429).json({ status: 'error', code: 'RATE_LIMIT', message: 'Too many requests' });

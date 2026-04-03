@@ -6,11 +6,10 @@ import type { IWebSocketMiddleware } from './IWebSocketMiddleware';
 import type { IClosable } from '../shutdown';
 import { Logger } from '../logger';
 
-const logger = new Logger('WebSocket');
-
 export class WebSocketServer<TEvents extends IWebSocketEvents = IWebSocketEvents> implements IClosable {
   readonly name = 'WebSocket server';
   private readonly io: Server;
+  private readonly logger = new Logger('WebSocket');
 
   constructor(httpServer: HttpServer, config: IWebSocketServerConfig = {}) {
     this.io = new Server<
@@ -31,7 +30,7 @@ export class WebSocketServer<TEvents extends IWebSocketEvents = IWebSocketEvents
     });
 
     this.setupLogging();
-    logger.info('WebSocket server initialized');
+    this.logger.info('WebSocket server initialized');
   }
 
   // --- Namespace ---
@@ -44,14 +43,14 @@ export class WebSocketServer<TEvents extends IWebSocketEvents = IWebSocketEvents
 
   use(middleware: IWebSocketMiddleware): void {
     this.io.use((socket, next) => {
-      logger.debug(`Middleware "${middleware.name}" — socket ${socket.id}`);
+      this.logger.debug(`Middleware "${middleware.name}" — socket ${socket.id}`);
       middleware.handle(socket as Socket, next);
     });
   }
 
   useOn(namespaceName: string, middleware: IWebSocketMiddleware): void {
     this.namespace(namespaceName).use((socket, next) => {
-      logger.debug(`Middleware "${middleware.name}" on ${namespaceName} — socket ${socket.id}`);
+      this.logger.debug(`Middleware "${middleware.name}" on ${namespaceName} — socket ${socket.id}`);
       middleware.handle(socket as Socket, next);
     });
   }
@@ -60,14 +59,14 @@ export class WebSocketServer<TEvents extends IWebSocketEvents = IWebSocketEvents
 
   onConnection(handler: (socket: Socket) => void): void {
     this.io.on('connection', (socket) => {
-      logger.info(`Client connected: ${socket.id}`);
+      this.logger.info(`Client connected: ${socket.id}`);
       handler(socket as Socket);
     });
   }
 
   onConnectionTo(namespaceName: string, handler: (socket: Socket) => void): void {
     this.namespace(namespaceName).on('connection', (socket) => {
-      logger.info(`Client connected to ${namespaceName}: ${socket.id}`);
+      this.logger.info(`Client connected to ${namespaceName}: ${socket.id}`);
       handler(socket as Socket);
     });
   }
@@ -112,7 +111,7 @@ export class WebSocketServer<TEvents extends IWebSocketEvents = IWebSocketEvents
   async close(): Promise<void> {
     return new Promise<void>((resolve) => {
       this.io.close(() => {
-        logger.info('WebSocket server closed');
+        this.logger.info('WebSocket server closed');
         resolve();
       });
     });
@@ -123,11 +122,11 @@ export class WebSocketServer<TEvents extends IWebSocketEvents = IWebSocketEvents
   private setupLogging(): void {
     this.io.on('connection', (socket) => {
       socket.on('disconnect', (reason: string) => {
-        logger.info(`Client disconnected: ${socket.id} (${reason})`);
+        this.logger.info(`Client disconnected: ${socket.id} (${reason})`);
       });
 
       socket.on('error', (err: Error) => {
-        logger.error(`Socket error: ${socket.id}`, { error: err.message });
+        this.logger.error(`Socket error: ${socket.id}`, { error: err.message });
       });
     });
   }

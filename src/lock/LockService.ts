@@ -4,10 +4,9 @@ import type { RedisClient } from '../cache';
 import { AppError } from '../errors';
 import { Logger } from '../logger';
 
-const logger = new Logger('Lock');
-
 export class LockService {
   private readonly redlock: Redlock;
+  private readonly logger = new Logger('Lock');
 
   constructor(redis: RedisClient) {
     this.redlock = new Redlock([redis], {
@@ -20,7 +19,7 @@ export class LockService {
     let lock;
     try {
       lock = await this.redlock.acquire([`lock:${resource}`], ttlMs);
-      logger.debug(`Acquired lock: ${resource}`);
+      this.logger.debug(`Acquired lock: ${resource}`);
     } catch {
       throw new AppError('Resource is locked, try again later', 409, 'CONFLICT');
     }
@@ -29,7 +28,7 @@ export class LockService {
       return await fn();
     } finally {
       await lock.release();
-      logger.debug(`Released lock: ${resource}`);
+      this.logger.debug(`Released lock: ${resource}`);
     }
   }
 }

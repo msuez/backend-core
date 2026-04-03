@@ -4,10 +4,9 @@ import { Logger } from '../logger';
 import type { IStorageService, UploadOptions, StorageResult } from './IStorageService';
 import type { ILocalStorageConfig } from './ILocalStorageConfig';
 
-const logger = new Logger('LocalStorage');
-
 export class LocalStorageService implements IStorageService {
   private readonly basePath: string;
+  private readonly logger = new Logger('LocalStorage');
 
   constructor(config: ILocalStorageConfig = {}) {
     this.basePath = config.basePath ?? '.storage';
@@ -18,21 +17,21 @@ export class LocalStorageService implements IStorageService {
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
     await fs.promises.writeFile(filePath, file);
 
-    logger.debug(`Uploaded ${key}`, { size: file.length, contentType: options?.contentType });
+    this.logger.debug(`Uploaded ${key}`, { size: file.length, contentType: options?.contentType });
 
     return { key, size: file.length, contentType: options?.contentType };
   }
 
   async download(key: string): Promise<Buffer> {
     const filePath = path.join(this.basePath, key);
-    logger.debug(`Downloading ${key}`);
+    this.logger.debug(`Downloading ${key}`);
     return fs.promises.readFile(filePath);
   }
 
   async delete(key: string): Promise<void> {
     const filePath = path.join(this.basePath, key);
     await fs.promises.unlink(filePath);
-    logger.debug(`Deleted ${key}`);
+    this.logger.debug(`Deleted ${key}`);
   }
 
   async getSignedUrl(key: string, _expiresIn?: number): Promise<string> {

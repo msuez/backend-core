@@ -15,8 +15,6 @@ declare global {
   }
 }
 
-const logger = new Logger('UploadMiddleware');
-
 export function parseSizeBytes(size: string | number | undefined): number | undefined {
   if (size === undefined) return undefined;
   if (typeof size === 'number') return size;
@@ -57,6 +55,7 @@ export function createUploadMiddleware(
   storage: IStorageService,
   config: IUploadConfig,
 ): RequestHandler {
+  const logger = new Logger('UploadMiddleware');
   const fieldName = config.fieldName ?? 'file';
   const maxFileSize = parseSizeBytes(config.maxSize);
 

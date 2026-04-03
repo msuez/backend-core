@@ -4,8 +4,6 @@ import { AppError } from './AppError';
 import { ValidationError } from './ValidationError';
 import { Logger } from '../logger';
 
-const logger = new Logger('ErrorHandler');
-
 class ValidationErrorStrategy implements IErrorStrategy {
   canHandle(err: Error): boolean {
     return err instanceof ValidationError;
@@ -23,13 +21,15 @@ class ValidationErrorStrategy implements IErrorStrategy {
 }
 
 class AppErrorStrategy implements IErrorStrategy {
+  private readonly logger = new Logger('ErrorHandler');
+
   canHandle(err: Error): boolean {
     return err instanceof AppError;
   }
 
   handle(err: Error, res: ExpressResponse): void {
     const appErr = err as AppError;
-    logger.warn(appErr.message, { code: appErr.code, statusCode: appErr.statusCode });
+    this.logger.warn(appErr.message, { code: appErr.code, statusCode: appErr.statusCode });
     res.status(appErr.statusCode).json({
       status: 'error',
       code: appErr.code,
@@ -39,12 +39,14 @@ class AppErrorStrategy implements IErrorStrategy {
 }
 
 class FallbackErrorStrategy implements IErrorStrategy {
+  private readonly logger = new Logger('ErrorHandler');
+
   canHandle(): boolean {
     return true;
   }
 
   handle(err: Error, res: ExpressResponse): void {
-    logger.error('Unhandled error', { error: err.message, stack: err.stack });
+    this.logger.error('Unhandled error', { error: err.message, stack: err.stack });
     res.status(500).json({
       status: 'error',
       code: 'INTERNAL_ERROR',

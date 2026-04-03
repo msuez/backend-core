@@ -2,10 +2,9 @@ import type { Express } from 'express';
 import type { Server as HttpServer } from 'http';
 import { Logger } from '../logger';
 
-const logger = new Logger('Server');
-
 export class ExpressServer {
   private server: HttpServer | null = null;
+  private readonly logger = new Logger('Server');
 
   constructor(
     private readonly app: Express,
@@ -14,7 +13,7 @@ export class ExpressServer {
 
   start(): void {
     this.server = this.app.listen(this.port, () => {
-      logger.info(`Running on http://localhost:${this.port}`);
+      this.logger.info(`Running on http://localhost:${this.port}`);
     });
   }
 

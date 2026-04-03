@@ -4,8 +4,6 @@ import type { ICircuitBreakerOptions } from './ICircuitBreakerOptions';
 import { Logger } from '../logger';
 import { AppError } from '../errors';
 
-const logger = new Logger('CircuitBreaker');
-
 const DEFAULTS: Required<ICircuitBreakerOptions> = {
   timeout: 5000,
   errorThresholdPercentage: 50,
@@ -15,14 +13,15 @@ const DEFAULTS: Required<ICircuitBreakerOptions> = {
 
 export class OpossumeCircuitBreaker<TArgs extends unknown[], TResult> implements ICircuitBreaker<TArgs, TResult> {
   private readonly breaker: CircuitBreaker<TArgs, TResult>;
+  private readonly logger = new Logger('CircuitBreaker');
 
   constructor(fn: (...args: TArgs) => Promise<TResult>, options?: ICircuitBreakerOptions) {
     const opts = { ...DEFAULTS, ...options };
     this.breaker = new CircuitBreaker(fn, opts);
 
-    this.breaker.on('open', () => logger.warn('Circuit OPEN'));
-    this.breaker.on('halfOpen', () => logger.info('Circuit HALF-OPEN'));
-    this.breaker.on('close', () => logger.info('Circuit CLOSED'));
+    this.breaker.on('open', () => this.logger.warn('Circuit OPEN'));
+    this.breaker.on('halfOpen', () => this.logger.info('Circuit HALF-OPEN'));
+    this.breaker.on('close', () => this.logger.info('Circuit CLOSED'));
   }
 
   get state(): string {

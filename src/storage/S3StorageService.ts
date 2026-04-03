@@ -9,11 +9,10 @@ import { Logger } from '../logger';
 import type { IStorageService, UploadOptions, StorageResult } from './IStorageService';
 import type { IS3StorageConfig } from './IS3StorageConfig';
 
-const logger = new Logger('S3Storage');
-
 export class S3StorageService implements IStorageService {
   private readonly client: S3Client;
   private readonly bucket: string;
+  private readonly logger = new Logger('S3Storage');
 
   constructor(
     private readonly config: IS3StorageConfig,
@@ -43,7 +42,7 @@ export class S3StorageService implements IStorageService {
       }),
     );
 
-    logger.debug(`Uploaded ${key}`, { bucket: this.bucket, size: file.length });
+    this.logger.debug(`Uploaded ${key}`, { bucket: this.bucket, size: file.length });
 
     return { key, size: file.length, contentType: options?.contentType };
   }
@@ -62,7 +61,7 @@ export class S3StorageService implements IStorageService {
       chunks.push(chunk);
     }
 
-    logger.debug(`Downloaded ${key}`);
+    this.logger.debug(`Downloaded ${key}`);
     return Buffer.concat(chunks);
   }
 
@@ -70,7 +69,7 @@ export class S3StorageService implements IStorageService {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
-    logger.debug(`Deleted ${key}`);
+    this.logger.debug(`Deleted ${key}`);
   }
 
   async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {

@@ -1,8 +1,6 @@
 import type { IHealthCheck, IServiceStatus } from './IHealthCheck';
 import { Logger } from '../logger';
 
-const logger = new Logger('Health');
-
 export interface IHealthResult {
   status: 'ok' | 'degraded';
   timestamp: string;
@@ -10,6 +8,8 @@ export interface IHealthResult {
 }
 
 export class HealthChecker {
+  private readonly logger = new Logger('Health');
+
   constructor(private readonly checks: IHealthCheck[]) {}
 
   async check(): Promise<{ result: IHealthResult; httpStatus: number }> {
@@ -32,7 +32,7 @@ export class HealthChecker {
     };
 
     if (!allOk) {
-      logger.warn('Health check degraded', { services });
+      this.logger.warn('Health check degraded', { services });
     }
 
     return { result, httpStatus: allOk ? 200 : 503 };
