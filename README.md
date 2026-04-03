@@ -366,311 +366,592 @@ new GracefulShutdown([
 
 ### Example 1 — Minimal API Server
 
-Logger + Express Server + Error Handler + Health + Graceful Shutdown. The simplest production-ready API.
+Logger + Express Server + Error Handler + Graceful Shutdown.
+
+```
+src/
+├── app.ts
+├── config/
+│   └── env.ts
+├── users/
+│   ├── user.controller.ts
+│   └── user.routes.ts
+└── bootstrap.ts
+```
+
+**`src/config/env.ts`**
 
 ```typescript
-// app.ts
+export class AppConfig {
+  static readonly port = Number(process.env.PORT) || 3000;
+  static readonly isDev = process.env.NODE_ENV === 'development';
+}
+```
+
+**`src/users/user.controller.ts`**
+
+```typescript
+import type { Request, Response, NextFunction } from 'express';
+import { NotFoundError } from '@msuez/backend-core';
+
+const users: Record<string, string> = { '1': 'Alice', '2': 'Bob' };
+
+export class UserController {
+  getById = (req: Request, res: Response, next: NextFunction): void => {
+    try {
+      const user = users[req.params.id];
+      if (!user) throw new NotFoundError('User');
+      res.json({ status: 'success', data: { id: req.params.id, name: user } });
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+```
+
+**`src/users/user.routes.ts`**
+
+```typescript
+import { Router } from 'express';
+import { UserController } from './user.controller';
+
+export function createUserRoutes(): Router {
+  const controller = new UserController();
+  const router = Router();
+  router.get('/:id', controller.getById);
+  return router;
+}
+```
+
+**`src/bootstrap.ts`**
+
+```typescript
 import express from 'express';
-import {
-  Logger, ExpressServer, GracefulShutdown, createErrorHandler,
-  AppError, NotFoundError,
-} from '@msuez/backend-core';
+import { Logger, ExpressServer, GracefulShutdown, createErrorHandler } from '@msuez/backend-core';
+import { AppConfig } from './config/env';
+import { createUserRoutes } from './users/user.routes';
 
-Logger.init({ isDev: true });
+export async function bootstrap(): Promise<void> {
+  const app = express();
+  app.use(express.json());
 
-const app = express();
-app.use(express.json());
+  app.get('/ping', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
 
-// Routes
-app.get('/ping', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  app.use('/users', createUserRoutes());
+  app.use(createErrorHandler());
+
+  const server = new ExpressServer(app, AppConfig.port);
+  server.start();
+
+  new GracefulShutdown([
+    { name: 'HTTP server', close: () => server.stop() },
+  ]).register();
+}
+```
+
+**`src/app.ts`**
+
+```typescript
+import { Logger } from '@msuez/backend-core';
+import { AppConfig } from './config/env';
+import { bootstrap } from './bootstrap';
+
+Logger.init({ isDev: AppConfig.isDev });
+bootstrap().catch((err) => {
+  new Logger('App').error('Failed to start', { error: err.message });
+  process.exit(1);
 });
-
-app.get('/users/:id', (req, res) => {
-  const users: Record<string, string> = { '1': 'Alice', '2': 'Bob' };
-  const user = users[req.params.id];
-  if (!user) throw new NotFoundError('User');
-  res.json({ status: 'success', data: { id: req.params.id, name: user } });
-});
-
-app.post('/transfer', (req, res) => {
-  const { amount } = req.body;
-  if (amount > 10000) throw new AppError('Transfer limit exceeded', 400, 'LIMIT_EXCEEDED');
-  res.json({ status: 'success', data: { transferred: amount } });
-});
-
-// Error handler (must be last)
-app.use(createErrorHandler());
-
-// Start
-const server = new ExpressServer(app, 3000);
-server.start();
-
-new GracefulShutdown([
-  { name: 'HTTP server', close: () => server.stop() },
-]).register();
 ```
 
 ```bash
-curl localhost:3000/ping                    # 200 { status: 'ok', timestamp: '...' }
-curl localhost:3000/users/1                 # 200 { status: 'success', data: { id: '1', name: 'Alice' } }
-curl localhost:3000/users/99                # 404 { status: 'error', code: 'NOT_FOUND', message: 'User not found' }
-curl -X POST localhost:3000/transfer \
-  -H 'Content-Type: application/json' \
-  -d '{"amount": 50000}'                   # 400 { status: 'error', code: 'LIMIT_EXCEEDED' }
+curl localhost:3000/ping       # 200 { status: 'ok', timestamp: '...' }
+curl localhost:3000/users/1    # 200 { status: 'success', data: { id: '1', name: 'Alice' } }
+curl localhost:3000/users/99   # 404 { status: 'error', code: 'NOT_FOUND' }
 ```
 
 ---
 
 ### Example 2 — API with Redis: Cache, Rate Limiting, and Validation
 
-Adds Redis, Zod validation, cache-aside pattern, and rate limiting.
+Adds Redis, Zod validation, cache-aside, rate limiting, and health check.
+
+```
+src/
+├── app.ts
+├── config/
+│   └── env.ts
+├── products/
+│   ├── product.controller.ts
+│   ├── product.routes.ts
+│   ├── product.schemas.ts
+│   └── product.service.ts
+└── bootstrap.ts
+```
+
+**`src/config/env.ts`**
 
 ```typescript
-// app.ts
-import express from 'express';
+export class AppConfig {
+  static readonly port = Number(process.env.PORT) || 3000;
+  static readonly isDev = process.env.NODE_ENV === 'development';
+  static readonly redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+}
+```
+
+**`src/products/product.schemas.ts`**
+
+```typescript
 import { z } from 'zod';
-import {
-  Logger, ExpressServer, GracefulShutdown, createErrorHandler,
-  RedisClient, CacheService, RateLimiter, validate, NotFoundError,
-  HealthChecker, RedisHealthCheck,
-} from '@msuez/backend-core';
 
-Logger.init({ isDev: true });
-
-// Services
-const redis = new RedisClient('redis://localhost:6379');
-const cache = new CacheService(redis);
-
-// Schemas
-const ProductParamsSchema = z.object({ id: z.string().uuid() });
-const CreateProductSchema = z.object({
+export const CreateProductSchema = z.object({
   name: z.string().min(1),
   price: z.number().positive(),
 });
+```
 
-// Fake DB
-const products = new Map<string, { id: string; name: string; price: number }>();
+**`src/products/product.service.ts`**
 
-// App
-const app = express();
-app.use(express.json());
+```typescript
+import type { CacheService } from '@msuez/backend-core';
 
-// Global rate limit: 100 req/min by IP
-app.use(new RateLimiter(redis, {
-  keyPrefix: 'rl:ip', points: 100, duration: 60,
-  keyExtractor: (req) => req.ip ?? 'unknown',
-}).handle);
+interface IProduct {
+  id: string;
+  name: string;
+  price: number;
+}
 
-// Health
-const healthChecker = new HealthChecker([new RedisHealthCheck(redis)]);
-app.get('/health', async (_req, res) => {
-  const { result, httpStatus } = await healthChecker.check();
-  res.status(httpStatus).json(result);
-});
+const products = new Map<string, IProduct>();
 
-// GET /products — cached for 60s
-app.get('/products', async (_req, res) => {
-  const { data, hit } = await cache.getOrFetch('products:list', 60, async () => {
-    return Array.from(products.values());
+export class ProductService {
+  constructor(private readonly cache: CacheService) {}
+
+  async getAll(): Promise<IProduct[]> {
+    const { data } = await this.cache.getOrFetch('products:list', 60, async () => {
+      return Array.from(products.values());
+    });
+    return data;
+  }
+
+  async create(data: { name: string; price: number }): Promise<IProduct> {
+    const product = { id: crypto.randomUUID(), ...data };
+    products.set(product.id, product);
+    await this.cache.del('products:list');
+    return product;
+  }
+}
+```
+
+**`src/products/product.controller.ts`**
+
+```typescript
+import type { Request, Response, NextFunction } from 'express';
+import type { ProductService } from './product.service';
+
+export class ProductController {
+  constructor(private readonly service: ProductService) {}
+
+  getAll = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const products = await this.service.getAll();
+      res.json({ status: 'success', data: products });
+    } catch (err) { next(err); }
+  };
+
+  create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const product = await this.service.create(req.body);
+      res.status(201).json({ status: 'success', data: product });
+    } catch (err) { next(err); }
+  };
+}
+```
+
+**`src/products/product.routes.ts`**
+
+```typescript
+import { Router } from 'express';
+import { validate } from '@msuez/backend-core';
+import { ProductController } from './product.controller';
+import { CreateProductSchema } from './product.schemas';
+
+export function createProductRoutes(controller: ProductController): Router {
+  const router = Router();
+  router.get('/', controller.getAll);
+  router.post('/', validate(CreateProductSchema, 'body'), controller.create);
+  return router;
+}
+```
+
+**`src/bootstrap.ts`**
+
+```typescript
+import express from 'express';
+import {
+  Logger, ExpressServer, GracefulShutdown, createErrorHandler,
+  RedisClient, CacheService, RateLimiter,
+  HealthChecker, RedisHealthCheck,
+} from '@msuez/backend-core';
+import { AppConfig } from './config/env';
+import { ProductService } from './products/product.service';
+import { ProductController } from './products/product.controller';
+import { createProductRoutes } from './products/product.routes';
+
+export async function bootstrap(): Promise<void> {
+  // Services
+  const redis = new RedisClient(AppConfig.redisUrl);
+  const cache = new CacheService(redis);
+
+  // Product module
+  const productService = new ProductService(cache);
+  const productController = new ProductController(productService);
+
+  // Health
+  const healthChecker = new HealthChecker([new RedisHealthCheck(redis)]);
+
+  // Express
+  const app = express();
+  app.use(express.json());
+  app.use(new RateLimiter(redis, {
+    keyPrefix: 'rl:ip', points: 100, duration: 60,
+    keyExtractor: (req) => req.ip ?? 'unknown',
+  }).handle);
+
+  app.get('/health', async (_req, res) => {
+    const { result, httpStatus } = await healthChecker.check();
+    res.status(httpStatus).json(result);
   });
-  res.set('X-Cache', hit ? 'HIT' : 'MISS');
-  res.json({ status: 'success', data });
+
+  app.use('/products', createProductRoutes(productController));
+  app.use(createErrorHandler());
+
+  // Start
+  const server = new ExpressServer(app, AppConfig.port);
+  server.start();
+
+  new GracefulShutdown([
+    { name: 'HTTP server', close: () => server.stop() },
+    { name: 'Redis', close: () => redis.quit().then(() => {}) },
+  ]).register();
+}
+```
+
+**`src/app.ts`**
+
+```typescript
+import { Logger } from '@msuez/backend-core';
+import { AppConfig } from './config/env';
+import { bootstrap } from './bootstrap';
+
+Logger.init({ isDev: AppConfig.isDev });
+bootstrap().catch((err) => {
+  new Logger('App').error('Failed to start', { error: err.message });
+  process.exit(1);
 });
-
-// POST /products — validated, invalidates cache
-app.post('/products', validate(CreateProductSchema, 'body'), async (req, res) => {
-  const id = crypto.randomUUID();
-  const product = { id, ...req.body };
-  products.set(id, product);
-  await cache.del('products:list');
-  res.status(201).json({ status: 'success', data: product });
-});
-
-app.use(createErrorHandler());
-
-// Start
-const server = new ExpressServer(app, 3000);
-server.start();
-
-new GracefulShutdown([
-  { name: 'HTTP server', close: () => server.stop() },
-  { name: 'Redis', close: () => redis.quit().then(() => {}) },
-]).register();
 ```
 
 ```bash
-# Validated
 curl -X POST localhost:3000/products \
   -H 'Content-Type: application/json' \
   -d '{"name": "Laptop", "price": 999}'     # 201 created
 
 curl -X POST localhost:3000/products \
   -H 'Content-Type: application/json' \
-  -d '{"name": "", "price": -5}'             # 400 validation error with Zod details
+  -d '{"name": "", "price": -5}'             # 400 validation error
 
-# Cached
-curl localhost:3000/products                  # X-Cache: MISS (first time)
-curl localhost:3000/products                  # X-Cache: HIT  (from Redis)
-
-# Health
-curl localhost:3000/health                    # 200 { status: 'ok', services: { redis: { status: 'ok' } } }
-
-# Rate limit (after 100 requests)
-                                              # 429 { code: 'RATE_LIMIT' } + Retry-After header
+curl localhost:3000/products                  # 200 (cached after first call)
+curl localhost:3000/health                    # 200 { status: 'ok', services: { redis: ... } }
 ```
 
 ---
 
 ### Example 3 — Event-Driven with Lock, Circuit Breaker, and Full Health
 
-Complete setup: typed events, distributed lock for race conditions, circuit breaker for external API, all health checks.
+Complete setup: typed events, distributed lock, circuit breaker, all health checks.
+
+```
+src/
+├── app.ts
+├── config/
+│   ├── env.ts
+│   ├── database.ts
+│   └── events.ts
+├── orders/
+│   ├── order.controller.ts
+│   ├── order.routes.ts
+│   ├── order.schemas.ts
+│   ├── order.service.ts
+│   └── order.listener.ts
+├── payments/
+│   └── payment.client.ts
+└── infra/
+    ├── ServiceContainer.ts
+    └── AppBootstrap.ts
+```
+
+**`src/config/events.ts`**
 
 ```typescript
-// app.ts
-import express from 'express';
-import { z } from 'zod';
-import { DataSource } from 'typeorm';
-import {
-  Logger, ExpressServer, GracefulShutdown, createErrorHandler,
-  RedisClient, CacheService, TypedEventBus, LockService, RateLimiter,
-  OpossumeCircuitBreaker, validate, AppError,
-  HealthChecker, PostgresHealthCheck, RedisHealthCheck, CircuitBreakerHealthCheck,
-} from '@msuez/backend-core';
-
-Logger.init({ isDev: true });
-
-// Event map — project-specific, fully typed
-interface IEventMap {
+export interface IEventMap {
   'order:created': { orderId: string; userId: string; total: number };
   'payment:failed': { orderId: string; reason: string };
 }
+```
 
-// Services
-const redis = new RedisClient('redis://localhost:6379');
-const cache = new CacheService(redis);
-const eventBus = new TypedEventBus<IEventMap>();
-const lockService = new LockService(redis);
-const dataSource = new DataSource({ /* ... your TypeORM config */ });
+**`src/config/env.ts`**
 
-// Circuit breaker for external payment API
-const paymentBreaker = new OpossumeCircuitBreaker(
-  async (data: { orderId: string; amount: number }) => {
-    const res = await fetch('https://api.payments.com/charge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Payment API: ${res.status}`);
-    return res.json();
-  },
-  { timeout: 5000, errorThresholdPercentage: 50, resetTimeout: 30000 },
-);
+```typescript
+export class AppConfig {
+  static readonly port = Number(process.env.PORT) || 3000;
+  static readonly isDev = process.env.NODE_ENV === 'development';
+  static readonly redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  static readonly paymentApiUrl = process.env.PAYMENT_API_URL || 'https://api.payments.com/charge';
+}
+```
 
-// Event listeners
-eventBus.on('order:created', (payload) => {
-  // payload is typed: { orderId, userId, total }
-  console.log(`Order ${payload.orderId} — charging $${payload.total}`);
-  paymentBreaker.fire({ orderId: payload.orderId, amount: payload.total })
-    .catch(() => eventBus.emit('payment:failed', {
-      orderId: payload.orderId,
-      reason: 'Payment service unavailable',
-    }));
-});
+**`src/payments/payment.client.ts`**
 
-eventBus.on('payment:failed', (payload) => {
-  console.log(`Payment failed for ${payload.orderId}: ${payload.reason}`);
-});
+```typescript
+import { OpossumeCircuitBreaker, type ICircuitBreakerState } from '@msuez/backend-core';
 
-// App
-const app = express();
-app.use(express.json());
-app.use(new RateLimiter(redis, {
-  keyPrefix: 'rl:ip', points: 100, duration: 60,
-  keyExtractor: (req) => req.ip ?? 'unknown',
-}).handle);
+interface IPaymentPayload {
+  orderId: string;
+  amount: number;
+}
 
-// Health — all 3 built-in checks
-const healthChecker = new HealthChecker([
-  new PostgresHealthCheck(dataSource),
-  new RedisHealthCheck(redis),
-  new CircuitBreakerHealthCheck(paymentBreaker),
-]);
-app.get('/health', async (_req, res) => {
-  const { result, httpStatus } = await healthChecker.check();
-  res.status(httpStatus).json(result);
-});
+export class PaymentClient implements ICircuitBreakerState {
+  private readonly breaker: OpossumeCircuitBreaker<[IPaymentPayload], unknown>;
 
-// POST /orders — with distributed lock to prevent overselling
-const CreateOrderSchema = z.object({
+  constructor(apiUrl: string) {
+    this.breaker = new OpossumeCircuitBreaker(
+      async (data: IPaymentPayload) => {
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error(`Payment API: ${res.status}`);
+        return res.json();
+      },
+    );
+  }
+
+  get state(): string { return this.breaker.state; }
+
+  async charge(orderId: string, amount: number): Promise<void> {
+    await this.breaker.fire({ orderId, amount });
+  }
+}
+```
+
+**`src/orders/order.schemas.ts`**
+
+```typescript
+import { z } from 'zod';
+
+export const CreateOrderSchema = z.object({
   userId: z.string().min(1),
   productId: z.string().uuid(),
   quantity: z.number().int().min(1),
 });
+```
 
-app.post('/orders', validate(CreateOrderSchema, 'body'), async (req, res, next) => {
-  try {
-    const { userId, productId, quantity } = req.body;
+**`src/orders/order.service.ts`**
 
-    const order = await lockService.withLock(`product:${productId}`, async () => {
-      // Inside the lock: no other request can modify this product's stock
-      const product = await getProduct(productId); // your DB call
-      if (product.stock < quantity) {
-        throw new AppError('Insufficient stock', 400, 'INSUFFICIENT_STOCK');
-      }
-      await decrementStock(productId, quantity);    // your DB call
-      return await createOrder({ userId, productId, quantity, total: product.price * quantity });
+```typescript
+import { AppError, type TypedEventBus, type LockService } from '@msuez/backend-core';
+import type { IEventMap } from '../config/events';
+
+export class OrderService {
+  constructor(
+    private readonly eventBus: TypedEventBus<IEventMap>,
+    private readonly lockService: LockService,
+  ) {}
+
+  async create(data: { userId: string; productId: string; quantity: number }) {
+    return this.lockService.withLock(`product:${data.productId}`, async () => {
+      // your DB calls here: validate stock, decrement, create order
+      const order = { id: crypto.randomUUID(), ...data, total: 999 * data.quantity };
+
+      this.eventBus.emit('order:created', {
+        orderId: order.id,
+        userId: data.userId,
+        total: order.total,
+      });
+
+      return order;
     });
-
-    // Event emitted AFTER lock is released
-    eventBus.emit('order:created', {
-      orderId: order.id,
-      userId,
-      total: order.total,
-    });
-
-    res.status(201).json({ status: 'success', data: order });
-  } catch (err) {
-    next(err);
   }
+}
+```
+
+**`src/orders/order.controller.ts`**
+
+```typescript
+import type { Request, Response, NextFunction } from 'express';
+import type { OrderService } from './order.service';
+
+export class OrderController {
+  constructor(private readonly service: OrderService) {}
+
+  create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const order = await this.service.create(req.body);
+      res.status(201).json({ status: 'success', data: order });
+    } catch (err) { next(err); }
+  };
+}
+```
+
+**`src/orders/order.routes.ts`**
+
+```typescript
+import { Router } from 'express';
+import { validate } from '@msuez/backend-core';
+import { OrderController } from './order.controller';
+import { CreateOrderSchema } from './order.schemas';
+
+export function createOrderRoutes(controller: OrderController): Router {
+  const router = Router();
+  router.post('/', validate(CreateOrderSchema, 'body'), controller.create);
+  return router;
+}
+```
+
+**`src/orders/order.listener.ts`**
+
+```typescript
+import { Logger, type TypedEventBus } from '@msuez/backend-core';
+import type { IEventMap } from '../config/events';
+import type { PaymentClient } from '../payments/payment.client';
+
+const logger = new Logger('OrderEvents');
+
+export class OrderListener {
+  constructor(
+    private readonly eventBus: TypedEventBus<IEventMap>,
+    private readonly paymentClient: PaymentClient,
+  ) {}
+
+  register(): void {
+    this.eventBus.on('order:created', (payload) => {
+      logger.info(`Order ${payload.orderId} — charging $${payload.total}`);
+      this.paymentClient.charge(payload.orderId, payload.total)
+        .catch(() => this.eventBus.emit('payment:failed', {
+          orderId: payload.orderId,
+          reason: 'Payment service unavailable',
+        }));
+    });
+
+    this.eventBus.on('payment:failed', (payload) => {
+      logger.warn(`Payment failed for ${payload.orderId}: ${payload.reason}`);
+    });
+  }
+}
+```
+
+**`src/infra/ServiceContainer.ts`**
+
+```typescript
+import { RedisClient, TypedEventBus, LockService } from '@msuez/backend-core';
+import type { IEventMap } from '../config/events';
+import { AppConfig } from '../config/env';
+
+export class ServiceContainer {
+  readonly redis = new RedisClient(AppConfig.redisUrl);
+  readonly eventBus = new TypedEventBus<IEventMap>();
+  readonly lockService = new LockService(this.redis);
+}
+```
+
+**`src/infra/AppBootstrap.ts`**
+
+```typescript
+import express from 'express';
+import {
+  Logger, ExpressServer, GracefulShutdown, createErrorHandler, RateLimiter,
+  HealthChecker, RedisHealthCheck, CircuitBreakerHealthCheck,
+} from '@msuez/backend-core';
+import { AppConfig } from '../config/env';
+import { ServiceContainer } from './ServiceContainer';
+import { PaymentClient } from '../payments/payment.client';
+import { OrderService } from '../orders/order.service';
+import { OrderController } from '../orders/order.controller';
+import { createOrderRoutes } from '../orders/order.routes';
+import { OrderListener } from '../orders/order.listener';
+
+const logger = new Logger('App');
+
+export class AppBootstrap {
+  async start(): Promise<void> {
+    const container = new ServiceContainer();
+    const paymentClient = new PaymentClient(AppConfig.paymentApiUrl);
+
+    // Module wiring
+    const orderService = new OrderService(container.eventBus, container.lockService);
+    const orderController = new OrderController(orderService);
+    new OrderListener(container.eventBus, paymentClient).register();
+
+    // Health
+    const healthChecker = new HealthChecker([
+      new RedisHealthCheck(container.redis),
+      new CircuitBreakerHealthCheck(paymentClient),
+    ]);
+
+    // Express
+    const app = express();
+    app.use(express.json());
+    app.use(new RateLimiter(container.redis, {
+      keyPrefix: 'rl:ip', points: 100, duration: 60,
+      keyExtractor: (req) => req.ip ?? 'unknown',
+    }).handle);
+
+    app.get('/health', async (_req, res) => {
+      const { result, httpStatus } = await healthChecker.check();
+      res.status(httpStatus).json(result);
+    });
+
+    app.use('/orders', createOrderRoutes(orderController));
+    app.use(createErrorHandler());
+
+    const server = new ExpressServer(app, AppConfig.port);
+    server.start();
+
+    new GracefulShutdown([
+      { name: 'HTTP server', close: () => server.stop() },
+      { name: 'Redis', close: () => container.redis.quit().then(() => {}) },
+    ]).register();
+
+    logger.info('Application started successfully');
+  }
+}
+```
+
+**`src/app.ts`**
+
+```typescript
+import { Logger } from '@msuez/backend-core';
+import { AppConfig } from './config/env';
+import { AppBootstrap } from './infra/AppBootstrap';
+
+Logger.init({ isDev: AppConfig.isDev });
+new AppBootstrap().start().catch((err) => {
+  new Logger('App').error('Failed to start', { error: err.message });
+  process.exit(1);
 });
-
-app.use(createErrorHandler());
-
-// Start
-const server = new ExpressServer(app, 3000);
-server.start();
-
-new GracefulShutdown([
-  { name: 'HTTP server', close: () => server.stop() },
-  { name: 'Database', close: () => dataSource.destroy() },
-  { name: 'Redis', close: () => redis.quit().then(() => {}) },
-]).register();
 ```
 
 ```bash
-# Create order — lock prevents overselling
+# Create order with distributed lock
 curl -X POST localhost:3000/orders \
   -H 'Content-Type: application/json' \
-  -d '{"userId": "user-1", "productId": "uuid-here", "quantity": 2}'
-# 201 { status: 'success', data: { id: '...', total: 1999.98 } }
+  -d '{"userId": "user-1", "productId": "550e8400-e29b-41d4-a716-446655440000", "quantity": 2}'
+# 201 { status: 'success', data: { id: '...', total: 1998 } }
 
-# Concurrent requests to same product — one succeeds, other gets 409
-# (automatic retry if lock is contended)
-
-# Health with circuit breaker state
+# Health with circuit breaker
 curl localhost:3000/health
-# 200 { status: 'ok', services: {
-#   postgres: { status: 'ok' },
-#   redis: { status: 'ok' },
-#   circuitBreaker: { status: 'ok', message: 'closed' }
-# }}
-
-# If payment API goes down → circuit opens
-curl localhost:3000/health
-# 503 { status: 'degraded', services: {
-#   circuitBreaker: { status: 'error', message: 'open' }
-# }}
+# 200 { status: 'ok', services: { redis: ..., circuitBreaker: { status: 'ok', message: 'closed' } } }
 ```
 
 ---
