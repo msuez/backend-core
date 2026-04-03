@@ -18,6 +18,10 @@ export class ExpressServer {
     });
   }
 
+  getHttpServer(): HttpServer | null {
+    return this.server;
+  }
+
   async stop(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.server) {

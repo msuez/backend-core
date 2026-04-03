@@ -308,6 +308,114 @@ const healthChecker = new HealthChecker([
 
 ---
 
+### Step 13 — WebSocket (Socket.IO)
+
+Real-time communication with rooms, namespaces, auth middleware, and typed events. Integrates with ExpressServer and GracefulShutdown.
+
+```typescript
+import { ExpressServer, WebSocketServer } from '@msuez/backend-core';
+
+const expressServer = new ExpressServer(app, 3000);
+expressServer.start();
+
+const wss = new WebSocketServer(expressServer.getHttpServer()!, {
+  cors: { origin: 'http://localhost:5173', credentials: true },
+  connectionStateRecovery: { maxDisconnectionDuration: 120000 },
+});
+```
+
+**Auth middleware:**
+
+```typescript
+wss.use({
+  name: 'auth',
+  handle(socket, next) {
+    const token = socket.handshake.auth.token;
+    if (!token) return next(new Error('No token'));
+    socket.data.userId = verifyToken(token);
+    next();
+  },
+});
+```
+
+**Namespace-specific middleware:**
+
+```typescript
+wss.useOn('/admin', {
+  name: 'admin-auth',
+  handle(socket, next) {
+    if (!socket.data.isAdmin) return next(new Error('Forbidden'));
+    next();
+  },
+});
+```
+
+**Connection handling + rooms:**
+
+```typescript
+wss.onConnection((socket) => {
+  socket.join(`user:${socket.data.userId}`);
+
+  socket.on('chat:message', (data) => {
+    wss.toRoom(data.roomId, 'chat:message', {
+      userId: socket.data.userId,
+      text: data.text,
+    });
+  });
+
+  socket.on('chat:join', (roomId) => {
+    socket.join(roomId);
+  });
+});
+```
+
+**Broadcast:**
+
+```typescript
+wss.broadcast('notification', { message: 'Server update' });         // all clients
+wss.broadcastTo('/admin', 'alert', { level: 'critical' });           // all in namespace
+wss.toRoom('room-1', 'chat:message', { text: 'Hello room!' });      // specific room
+wss.toRoomIn('/chat', 'room-1', 'typing', { userId: 'user-1' });   // room in namespace
+```
+
+**Metrics:**
+
+```typescript
+wss.getConnectionCount();   // number of connected clients
+wss.getRooms();             // Map<roomName, Set<socketId>>
+wss.getRooms('/chat');       // rooms in specific namespace
+```
+
+**Shutdown — WebSocket closes BEFORE HTTP server:**
+
+```typescript
+new GracefulShutdown([
+  wss,  // implements IClosable — { name: 'WebSocket server', close() }
+  { name: 'HTTP server', close: () => expressServer.stop() },
+  { name: 'Redis', close: () => redis.quit().then(() => {}) },
+]).register();
+```
+
+**Advanced — access socket.io Server directly:**
+
+```typescript
+const io = wss.getIO();
+io.of(/^\/tenant-\d+$/).on('connection', (socket) => {
+  // Dynamic namespaces with regex
+});
+```
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `cors` | — | CORS config `{ origin, methods, credentials }` |
+| `pingInterval` | `25000` | Server heartbeat interval (ms) |
+| `pingTimeout` | `20000` | Client must respond within (ms) |
+| `connectionStateRecovery` | — | `{ maxDisconnectionDuration, skipMiddlewares }` |
+| `path` | `'/socket.io'` | WebSocket endpoint path |
+| `cleanupEmptyChildNamespaces` | `true` | Auto-cleanup dynamic namespaces |
+
+---
+
 ## Full Example
 
 ```typescript
@@ -971,6 +1079,7 @@ curl localhost:3000/health
 | **lock** | `LockService` | Facade (Redlock) |
 | **circuit-breaker** | `OpossumeCircuitBreaker`, `ICircuitBreaker`, `ICircuitBreakerState` | Adapter + Decorator |
 | **health** | `HealthChecker`, `PostgresHealthCheck`, `RedisHealthCheck`, `CircuitBreakerHealthCheck`, `IHealthCheck` | Composite + Strategy |
+| **websocket** | `WebSocketServer`, `IWebSocketEvents`, `IWebSocketServerConfig`, `IWebSocketMiddleware` | Facade (socket.io) |
 
 ## Peer Dependencies
 

@@ -48,4 +48,23 @@ describe('ExpressServer', () => {
 
     await expect(server.stop()).resolves.toBeUndefined();
   });
+
+  it('getHttpServer() returns null before start', () => {
+    const app = express();
+    server = new ExpressServer(app, 0);
+
+    expect(server.getHttpServer()).toBeNull();
+  });
+
+  it('getHttpServer() returns HttpServer after start', async () => {
+    const app = express();
+    server = new ExpressServer(app, 0);
+    server.start();
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const httpServer = server.getHttpServer();
+    expect(httpServer).not.toBeNull();
+    expect(typeof httpServer!.close).toBe('function');
+  });
 });

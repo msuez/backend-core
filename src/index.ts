@@ -9,3 +9,4 @@ export * from './rate-limiter';
 export * from './server';
 export * from './shutdown';
 export * from './validate';
+export * from './websocket';
