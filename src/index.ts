@@ -8,5 +8,6 @@ export * from './logger';
 export * from './rate-limiter';
 export * from './server';
 export * from './shutdown';
+export * from './storage';
 export * from './validate';
 export * from './websocket';
