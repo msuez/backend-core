@@ -14,5 +14,7 @@ export * from './websocket';
 export * from './rpc';
 export { SqsAdapter } from './rpc/SqsAdapter';
 export type { SqsAdapterConfig } from './rpc/SqsAdapter';
+export { RabbitMqAdapter } from './rpc/RabbitMqAdapter';
+export type { RabbitMqAdapterConfig } from './rpc/RabbitMqAdapter';
 export * from './rpc-client';
 export * from './rpc-server';

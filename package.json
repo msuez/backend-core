@@ -22,6 +22,7 @@
     "./websocket": { "types": "./dist/websocket/index.d.ts", "import": "./dist/websocket/index.js" },
     "./rpc": { "types": "./dist/rpc/index.d.ts", "import": "./dist/rpc/index.js" },
     "./rpc/sqs-adapter": { "types": "./dist/rpc/SqsAdapter.d.ts", "import": "./dist/rpc/SqsAdapter.js" },
+    "./rpc/rabbitmq-adapter": { "types": "./dist/rpc/RabbitMqAdapter.d.ts", "import": "./dist/rpc/RabbitMqAdapter.js" },
     "./rpc-client": { "types": "./dist/rpc-client/index.d.ts", "import": "./dist/rpc-client/index.js" },
     "./rpc-server": { "types": "./dist/rpc-server/index.d.ts", "import": "./dist/rpc-server/index.js" }
   },
@@ -77,6 +78,7 @@
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "@aws-sdk/client-sqs": "^3.400.0",
+    "amqplib": "^0.10.0",
     "axios": "^1.6.0",
     "uuid": "^9.0.0"
   },
@@ -90,6 +92,7 @@
     "@aws-sdk/client-s3": { "optional": true },
     "@aws-sdk/s3-request-presigner": { "optional": true },
     "@aws-sdk/client-sqs": { "optional": true },
+    "amqplib": { "optional": true },
     "axios": { "optional": true },
     "uuid": { "optional": true }
   },
@@ -102,7 +105,9 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^22.0.0",
     "@types/opossum": "^8.1.9",
+    "@types/amqplib": "^0.10.0",
     "@types/uuid": "^9.0.8",
+    "amqplib": "^0.10.0",
     "axios": "^1.14.0",
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
