@@ -7,7 +7,29 @@ npm install @msuez/backend-core
 ```
 
 ```typescript
+// Full import (loads everything, requires all peer deps)
 import { Logger, ExpressServer, RedisClient, ... } from '@msuez/backend-core';
+
+// Selective import (loads only what you need, no unnecessary deps)
+import { Logger } from '@msuez/backend-core/logger';
+import { ExpressServer } from '@msuez/backend-core/server';
+import { ServiceRegistry } from '@msuez/backend-core/rpc-client';
+```
+
+Install only the peer dependencies you need:
+
+```bash
+# Core (always needed)
+npm install express zod
+
+# Only if using cache/lock/rate-limiter
+npm install ioredis redlock rate-limiter-flexible
+
+# Only if using RPC client
+npm install axios uuid
+
+# Only if using SQS adapter
+npm install @aws-sdk/client-sqs
 ```
 
 ---
