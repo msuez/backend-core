@@ -21,6 +21,7 @@
     "./storage": { "types": "./dist/storage/index.d.ts", "import": "./dist/storage/index.js" },
     "./websocket": { "types": "./dist/websocket/index.d.ts", "import": "./dist/websocket/index.js" },
     "./rpc": { "types": "./dist/rpc/index.d.ts", "import": "./dist/rpc/index.js" },
+    "./rpc/sqs-adapter": { "types": "./dist/rpc/SqsAdapter.d.ts", "import": "./dist/rpc/SqsAdapter.js" },
     "./rpc-client": { "types": "./dist/rpc-client/index.d.ts", "import": "./dist/rpc-client/index.js" },
     "./rpc-server": { "types": "./dist/rpc-server/index.d.ts", "import": "./dist/rpc-server/index.js" }
   },

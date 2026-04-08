@@ -14,7 +14,3 @@ export type {
 
 // Errors
 export { ShowableError, wrapError } from './ShowableError';
-
-// Adapters
-export { SqsAdapter } from './SqsAdapter';
-export type { SqsAdapterConfig } from './SqsAdapter';
