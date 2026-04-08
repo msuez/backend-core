@@ -1,7 +1,7 @@
 {
   "name": "@msuez/backend-core",
   "version": "0.3.0",
-  "description": "Backend toolkit: cache, events, circuit-breaker, health, rate-limiter, errors, lock, logger, server, shutdown, storage, validate, websocket",
+  "description": "Backend toolkit: cache, events, circuit-breaker, health, rate-limiter, errors, lock, logger, server, shutdown, storage, validate, websocket, rpc",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

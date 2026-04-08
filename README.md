@@ -1,6 +1,6 @@
 # @msuez/backend-core
 
-Backend toolkit for Express + TypeScript. 11 modules, zero config, one import.
+Backend toolkit for Express + TypeScript. 15 modules, zero config, one import.
 
 ```bash
 npm install @msuez/backend-core
@@ -413,6 +413,121 @@ io.of(/^\/tenant-\d+$/).on('connection', (socket) => {
 | `connectionStateRecovery` | — | `{ maxDisconnectionDuration, skipMiddlewares }` |
 | `path` | `'/socket.io'` | WebSocket endpoint path |
 | `cleanupEmptyChildNamespaces` | `true` | Auto-cleanup dynamic namespaces |
+
+---
+
+### Step 14 — RPC (Remote Procedure Call)
+
+Synchronous HTTP and asynchronous queue-based communication between services. Split into 3 modules: shared protocol, client, and server.
+
+**Client — calling a remote service:**
+
+```typescript
+import { ServiceRegistry } from '@msuez/backend-core';
+
+// Configure once at startup
+ServiceRegistry.configure({
+  services: {
+    auth: {
+      type: 'http',
+      http: { baseURL: 'https://auth.internal:3000' },
+    },
+    mailer: {
+      type: 'queue',
+      queue: { adapter: sqsAdapter, queueUrl: 'https://sqs.../mailer-queue' },
+    },
+  },
+});
+
+// Use anywhere — clients are cached
+const auth = ServiceRegistry.getService('auth');
+const result = await auth.execute('auth:verify', token);
+
+const mailer = ServiceRegistry.getService('mailer');
+await mailer.execute('mailer:send', userId, 'welcome'); // fire-and-forget
+```
+
+**Server — receiving RPC requests:**
+
+```typescript
+import { RpcServer, HttpConsumer } from '@msuez/backend-core';
+
+const server = new RpcServer();
+
+// Register commands
+server.defineCommand('auth:verify', async (token: unknown) => {
+  return verifyToken(token as string);
+});
+
+server.define('users', {
+  list: () => repo.findAll(),
+  get: (id: unknown) => repo.findById(id as string),
+});
+
+// Middleware pipeline
+server.use('auth', 'context', (body) => body.context.userId);
+
+// Context injection — 'userId' is resolved and passed as first param
+server.defineCommand('profile:me', ['userId', async (userId: unknown) => {
+  return repo.findById(userId as string);
+}]);
+
+// HTTP consumer (Lambda / Express)
+const consumer = new HttpConsumer();
+await consumer.start((msg) => server.executeCommand(msg));
+
+// Express integration
+app.post('/rpc', async (req, res) => {
+  const result = await consumer.handleRequest(JSON.stringify(req.body));
+  res.status(result.statusCode).send(result.body);
+});
+```
+
+**Queue consumer (SQS Lambda):**
+
+```typescript
+import { SqsAdapter, QueueConsumer, RpcServer } from '@msuez/backend-core';
+
+const adapter = new SqsAdapter({ region: 'us-east-1' });
+const consumer = new QueueConsumer({ adapter, queueUrl: process.env.QUEUE_URL! });
+
+await consumer.start((msg) => server.executeCommand(msg));
+
+// Lambda handler
+export const handler = async (event: any) => {
+  return consumer.processRecords(event.Records);
+};
+```
+
+**Error handling across the boundary:**
+
+```typescript
+import { ShowableError, RpcRemoteError } from '@msuez/backend-core';
+
+// Server side — throw ShowableError for user-facing errors
+class InsufficientFundsError extends ShowableError {
+  constructor(balance: number) {
+    super('Insufficient funds');
+  }
+  extendShowableError() { return { balance: this.balance }; }
+}
+
+// Client side — catch RpcRemoteError
+try {
+  await auth.execute('payments:charge', amount);
+} catch (err) {
+  if (err instanceof RpcRemoteError && err.showable) {
+    // Safe to show to user
+    console.log(err.message, err.errorObject);
+  }
+}
+```
+
+| Module | What it does |
+|--------|-------------|
+| `rpc` | Shared wire format types, `ShowableError`, `SqsAdapter` |
+| `rpc-client` | `RpcClient`, producers (HTTP/Queue), `RpcClientFactory`, `ServiceRegistry` |
+| `rpc-server` | `RpcServer` with middleware pipeline, consumers (HTTP/Queue) |
 
 ---
 
@@ -1080,6 +1195,9 @@ curl localhost:3000/health
 | **circuit-breaker** | `OpossumeCircuitBreaker`, `ICircuitBreaker`, `ICircuitBreakerState` | Adapter + Decorator |
 | **health** | `HealthChecker`, `PostgresHealthCheck`, `RedisHealthCheck`, `CircuitBreakerHealthCheck`, `IHealthCheck` | Composite + Strategy |
 | **websocket** | `WebSocketServer`, `IWebSocketEvents`, `IWebSocketServerConfig`, `IWebSocketMiddleware` | Facade (socket.io) |
+| **rpc** | `ShowableError`, `wrapError`, `SqsAdapter`, wire types, `IQueueAdapter` | Shared protocol |
+| **rpc-client** | `RpcClient`, `HttpProducer`, `QueueProducer`, `RpcClientFactory`, `ServiceRegistry`, `RpcRemoteError` | Strategy + Factory |
+| **rpc-server** | `RpcServer`, `HttpConsumer`, `QueueConsumer`, middleware types | Middleware Pipeline |
 
 ## Peer Dependencies
 
