@@ -11,3 +11,6 @@ export * from './shutdown';
 export * from './storage';
 export * from './validate';
 export * from './websocket';
+export * from './rpc';
+export * from './rpc-client';
+export * from './rpc-server';
